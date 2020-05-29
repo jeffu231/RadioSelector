@@ -72,6 +72,14 @@ void setup() {
   
   initializeDisplay();
 
+  if (numRadios > 4) {
+    Serial.println("Too many radios");
+    display.println("Too Many");
+    display.println("Radios");
+    display.display();
+    for (;;); // Don't proceed, loop forever
+  }
+
   pinMode(micEnablePin, OUTPUT);
   pinMode(micAPin, OUTPUT);
   pinMode(micBPin, OUTPUT);
@@ -291,11 +299,15 @@ void initializeDisplay(){
 
     // Clear the buffer
   display.clearDisplay();
-  display.display();
   display.setFont(&FreeMono9pt7b);
   display.setTextSize(1); //font 1-8
   display.setTextColor(WHITE);
+  int16_t x1, y1;
+  uint16_t w, h;
+  display.getTextBounds(callsign, 0, 0, &x1, &y1, &w, &h);
+  display.setCursor(0, h);
   display.println("Booting..");
+  display.display();
 }
 
 /**
