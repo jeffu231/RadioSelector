@@ -38,7 +38,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 //Define the radios here.
 // hasMic, hasKeyer, name 
-Radio radios[4] = { {true,true,"IC-756"}, {true,true,"TS-850"}, {true,true,"TS-790"}, {true,true,"K2"} }; 
+Radio radios[4] = { {"IC-756",true,true}, {"TS-850",true,true}, {"TS-790",true,true}, {"K2",true,true} }; 
 
 //Define the callsign for the header here
 const char callsign[] = "KB9KLD";

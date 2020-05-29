@@ -6,9 +6,9 @@ struct InputState {
 };
 
 struct Radio {
+  char nm[7]; //Radio name
   bool hasMic;
   bool hasKeyer;
-  char nm[7]; 
 };
 
 Radio *getActiveMicRadio();
