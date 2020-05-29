@@ -31,6 +31,8 @@ void setActiveMicRadio();
 
 void setActiveKeyerRadio();
 
+void initializeDisplay();
+
 void updateDisplay();
 
 void displayResetMessage();

@@ -1,15 +1,20 @@
+/**
+    main.cpp
+    Purpose: Manage the Mic / Keyer Input
+
+    @author Jeff Uchitjil
+    @version 1.0 05/29/20 
+*/
+
 #include <Arduino.h>
-// Wiring: SDA pin is connected to A4 and SCL pin to A5.
-// Connect to LCD via I2C, default address 0x27 (A0-A2 not jumpered)
-//LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x27, 20, 4); // Change to (0x27,16,2) for 16x2 LCD.
-#include <Arduino.h>
-#include "main.h"
 #include <EEPROM.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Fonts/FreeMono9pt7b.h>
+
+#include "main.h"
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
@@ -18,6 +23,7 @@
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
+//Data pin configurations based on 74SL139
 #define micEnablePin 2
 #define micAPin 3
 #define micBPin 4
@@ -26,6 +32,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define keyAPin 6
 #define keyBPin 7
 
+//Input button pins
 #define micButtonPin 8
 #define keyerButtonPin 9
 
@@ -53,30 +60,17 @@ bool micButtonEnabled = false;
 bool keyerButtonEnabled = false;
 byte numRadios;
 
+/**
+    Arduino Setup block
+*/
 void setup() {
 
   Serial.begin(9600);
 
-  // Initiate the LCD:
-  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println(F("SSD1306 allocation failed"));
-    for (;;); // Don't proceed, loop forever
-  }
-  Serial.println(F("SSD1306 allocation success"));
-  // Show initial display buffer contents on the screen --
-  // the library initializes this with an Adafruit splash screen.
-
+  //determine how many radios are defined
   numRadios = (sizeof(radios)/sizeof(*radios));
- 
-  display.display();
-  delay(2000); // Pause for 2 seconds
-
-  // Clear the buffer
-  display.clearDisplay();
-  display.setFont(&FreeMono9pt7b);
-  display.setTextSize(1); //font 1-8
-  display.setTextColor(WHITE);
+  
+  initializeDisplay();
 
   pinMode(micEnablePin, OUTPUT);
   pinMode(micAPin, OUTPUT);
@@ -107,6 +101,9 @@ void setup() {
   updateDisplay();
 }
 
+/**
+    Main loop
+*/
 void loop() {
  
   int micButtonState = digitalRead(micButtonPin);
@@ -131,16 +128,26 @@ void loop() {
   lastKeyerButtonState = keyerButtonState;
 }
 
+/**
+    Writes the state to the EEProm so we can restart where we left off.
+*/
 void storeInputState() {
   EEPROM.put(stateStoreAddress, inputState);
   EEPROM.put(stateStoredAddress, 1);
 }
 
+/**
+    Clear any stored state
+*/
 void clearStoredInputState() {
   inputState = {};
   EEPROM.put(stateStoreAddress, inputState);
   EEPROM.put(stateStoredAddress, 0);
 }
+
+/**
+    Restore the saved state from the EEProm
+*/
 void restoreInputState() {
   Serial.println("Getting state!");
   int stateStored;
@@ -154,6 +161,11 @@ void restoreInputState() {
   }
 }
 
+/**
+    Enables or disables the Mic or Keyer selection button.
+    If there are no radios that support a Mic or Keyer, disable the selection button
+    and turn off the ports so the input is not attached to anything
+*/
 void setButtonsEnable(){
   for(int i=0;i<numRadios;i++){
     if(radios[i].hasMic){
@@ -168,6 +180,10 @@ void setButtonsEnable(){
   setBank2State(keyerButtonEnabled);
 }
 
+/**
+    Advance the Mic to the next radio in the list
+    Saves the updated state to the EEProm
+*/
 void moveToNextMicRadio() {
   if (inputState.activeMicRadio >= 3) {
     inputState.activeMicRadio = -1;
@@ -180,6 +196,10 @@ void moveToNextMicRadio() {
   storeInputState();
 }
 
+/**
+    Advance the Keyer to the next radio in the list
+    Saves the updated state to the EEProm
+*/
 void moveToNextKeyerRadio() {
   if (inputState.activeKeyerRadio >= 3) {
     inputState.activeKeyerRadio = -1;
@@ -191,6 +211,34 @@ void moveToNextKeyerRadio() {
   storeInputState();
 }
 
+/**
+    Gets the active Radio object for the Keyer
+    @return the active radio object for the keyer
+*/
+Radio *getActiveKeyerRadio() {
+   if(inputState.activeKeyerRadio < numRadios){
+      return &radios[inputState.activeKeyerRadio];
+   }else{
+      return &radios[0];
+   }
+}
+
+/**
+    Gets the active Radio object for the Mic
+    @return the active radio object for the mic
+*/
+Radio *getActiveMicRadio() {
+   if(inputState.activeMicRadio < numRadios){
+      return &radios[inputState.activeMicRadio];
+   }else{
+      return &radios[0];
+   }
+   
+}
+
+/**
+    Connects the Mic to the active Radio by toggling the IO state for it.
+*/
 void setActiveMicRadio() {
   switch (inputState.activeMicRadio) {
     case 0:
@@ -208,6 +256,9 @@ void setActiveMicRadio() {
   }
 }
 
+/**
+    Connects the Keyer to the active Radio by toggling the IO state for it.
+*/
 void setActiveKeyerRadio() {
   switch (inputState.activeKeyerRadio) {
     case 0:
@@ -225,6 +276,31 @@ void setActiveKeyerRadio() {
   }
 }
 
+/*
+    Initializes the display
+*/
+void initializeDisplay(){
+
+  // Initiate the LCD:
+  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;); // Don't proceed, loop forever
+  }
+  Serial.println(F("SSD1306 allocation success"));
+
+    // Clear the buffer
+  display.clearDisplay();
+  display.display();
+  display.setFont(&FreeMono9pt7b);
+  display.setTextSize(1); //font 1-8
+  display.setTextColor(WHITE);
+  display.println("Booting..");
+}
+
+/**
+    Update the display to reflect the current state
+*/
 void updateDisplay() {
   display.clearDisplay();
   int16_t x1, y1;
@@ -251,6 +327,9 @@ void updateDisplay() {
   display.display();
 }
 
+/**
+    Update the display with the reset messages
+*/
 void displayResetMessage() {
   display.clearDisplay();
   int16_t x1, y1;
@@ -262,74 +341,91 @@ void displayResetMessage() {
   display.display();
 }
 
-Radio *getActiveKeyerRadio() {
-   if(inputState.activeKeyerRadio < numRadios){
-      return &radios[inputState.activeKeyerRadio];
-   }else{
-      return &radios[0];
-   }
-}
+//IO State management
+//TODO Move this to other files to seperate it out operationally
 
-Radio *getActiveMicRadio() {
-   if(inputState.activeMicRadio < numRadios){
-      return &radios[inputState.activeMicRadio];
-   }else{
-      return &radios[0];
-   }
-   
-}
+/**
+    Connects the Mic to Radio port 1
+*/
 void setBank1Node0On() {
   digitalWrite(micBPin, LOW);
   digitalWrite(micAPin, LOW);
   setBank1State(true);
 }
 
+/**
+    Connects the Mic to Radio port 2
+*/
 void setBank1Node1On() {
   digitalWrite(micBPin, LOW);
   digitalWrite(micAPin, HIGH);
   setBank1State(true);
 }
 
+/**
+    Connects the Mic to Radio port 3
+*/
 void setBank1Node2On() {
   digitalWrite(micBPin, HIGH);
   digitalWrite(micAPin, LOW);
   setBank1State(true);
 }
 
+/**
+    Connects the Mic to Radio port 3
+*/
 void setBank1Node3On() {
   digitalWrite(micBPin, HIGH);
   digitalWrite(micAPin, HIGH);
   setBank1State(true);
 }
 
+/**
+    Enable or disable the entire Mic from any radio port.
+*/
 void setBank1State(bool state) {
   digitalWrite(micEnablePin, state ? LOW : HIGH);
 }
 
+/**
+    Connects the Keyer to Radio port 1
+*/
 void setBank2Node0On() {
   digitalWrite(keyBPin, LOW);
   digitalWrite(keyAPin, LOW);
   setBank2State(true);
 }
 
+/**
+    Connects the Keyer to Radio port 2
+*/
 void setBank2Node1On() {
   digitalWrite(keyBPin, LOW);
   digitalWrite(keyAPin, HIGH);
   setBank2State(true);
 }
 
+/**
+    Connects the Keyer to Radio port 3
+*/
 void setBank2Node2On() {
   digitalWrite(keyBPin, HIGH);
   digitalWrite(keyAPin, LOW);
   setBank2State(true);
 }
 
+/**
+    Connects the Keyer to Radio port 4
+*/
 void setBank2Node3On() {
   digitalWrite(keyBPin, HIGH);
   digitalWrite(keyAPin, HIGH);
   setBank2State(true);
 }
 
+/**
+    Enable or disable the entire Keyer from any radio port.
+*/
 void setBank2State(bool state) {
   digitalWrite(keyEnablePin, state ? LOW : HIGH);
 }
