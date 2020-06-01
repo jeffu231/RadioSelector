@@ -41,23 +41,12 @@ Radio *getActiveKeyerRadio();
 
 Radio *getActiveMicRadio();
 
-void setBank1Node0On();
+void setKeyerOn(int index);
 
-void setBank1Node1On();
+void setKeyerDisabled();
 
-void setBank1Node2On();
+void setMicOn(int index);
 
-void setBank1Node3On();
+void setMicDisabled();
 
-void setBank2Node0On();
-
-void setBank2Node1On();
-
-void setBank2Node2On();
-
-void setBank2Node3On();
-
-void setBank1State(bool state);
-
-void setBank2State(bool state);
-
+void writeOutput(byte output);

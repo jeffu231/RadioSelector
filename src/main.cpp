@@ -16,6 +16,7 @@
 
 #include "main.h"
 
+#define DEBUG 0
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 
@@ -23,21 +24,18 @@
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-//Data pin configurations based on 74SL139
-#define micEnablePin 2
-#define micAPin 3
-#define micBPin 4
-
-#define keyEnablePin 5
-#define keyAPin 6
-#define keyBPin 7
+//Data pin configurations on MAX4820
+#define MAX_SCLK 2      // SCLK, Connector pin 6 MAX4820  
+#define MAX_CS 3        // CS, Connector pin 4 MAX4820
+#define MAX_SDA 4       // DIN, Connector pin 5 MAX4820
+#define MAX_RESET 5     // RESET, Connector pin 3 MAX4820
 
 //Input button pins
-#define micButtonPin 8
-#define keyerButtonPin 9
+#define micButtonPin 6
+#define keyerButtonPin 7
 
 //Define the radios here.
-// hasMic, hasKeyer, name 
+//  name, hasMic, hasKeyer 
 Radio radios[4] = { {"IC-756",true,true}, {"TS-850",true,true}, {"TS-790",true,true}, {"K2",true,true} }; 
 
 //Define the callsign for the header here
@@ -54,48 +52,67 @@ int stateStoreAddress = sizeof(int);
 
 InputState inputState;
 
-int lastMicButtonState = HIGH;
-int lastKeyerButtonState = HIGH;
+int lastMicButtonState = LOW;
+int lastKeyerButtonState = LOW;
 bool micButtonEnabled = false;
 bool keyerButtonEnabled = false;
 byte numRadios;
+
+const byte micStateRef = 0b10000000;
+const byte keyerStateRef = 0b00001000;
+byte micState = micStateRef;
+byte keyerState = keyerStateRef;
+
+const int outputDelay = 50;     // Delay in data output, here 50µs
 
 /**
     Arduino Setup block
 */
 void setup() {
 
-  Serial.begin(9600);
-
+#if DEBUG==1
+    Serial.begin(9600);
+#endif
+  
   //determine how many radios are defined
   numRadios = (sizeof(radios)/sizeof(*radios));
   
   initializeDisplay();
 
   if (numRadios > 4) {
-    Serial.println("Too many radios");
     display.println("Too Many");
     display.println("Radios");
     display.display();
     for (;;); // Don't proceed, loop forever
   }
 
-  pinMode(micEnablePin, OUTPUT);
-  pinMode(micAPin, OUTPUT);
-  pinMode(micBPin, OUTPUT);
-
-  pinMode(keyEnablePin, OUTPUT);
-  pinMode(keyAPin, OUTPUT);
-  pinMode(keyBPin, OUTPUT);
-
+  pinMode(MAX_RESET, OUTPUT);
+  pinMode(MAX_CS, OUTPUT);
+  pinMode(MAX_SDA, OUTPUT);
+  pinMode(MAX_SCLK, OUTPUT);
+  
   pinMode(micButtonPin, INPUT);
   pinMode(keyerButtonPin, INPUT);
+
+  digitalWrite(MAX_RESET, LOW);   // reset all outputs
+  delayMicroseconds (outputDelay);
+  digitalWrite(MAX_CS, HIGH);     // do not select a block
+  delayMicroseconds (outputDelay);
+  digitalWrite(MAX_SDA, LOW);     // SDA/DIN set to low
+  delayMicroseconds (outputDelay);;
+  digitalWrite(MAX_SCLK, LOW);    // SCLK set to low
+  delayMicroseconds (outputDelay);
+  digitalWrite(MAX_RESET, HIGH);  // Enable blocks for programming
+  delayMicroseconds (outputDelay);
+
 
   int micButtonState = digitalRead(micButtonPin);
   if (micButtonState == LOW) {
     restoreInputState();
   } else {
+  #if DEBUG==1
     Serial.println("Clearing state!");
+  #endif
     clearStoredInputState();
     displayResetMessage();
     while (digitalRead(micButtonPin) == HIGH) {
@@ -157,16 +174,14 @@ void clearStoredInputState() {
     Restore the saved state from the EEProm
 */
 void restoreInputState() {
-  Serial.println("Getting state!");
+  
   int stateStored;
 
   EEPROM.get(stateStoredAddress, stateStored);
   if (stateStored == 1) {
-    Serial.println("We have saved state!");
     EEPROM.get(stateStoreAddress, inputState);
-  } else {
-    Serial.println("No saved state!");
-  }
+  } 
+
 }
 
 /**
@@ -184,8 +199,14 @@ void setButtonsEnable(){
     }
   }
 
-  setBank1State(micButtonEnabled);
-  setBank2State(keyerButtonEnabled);
+  if(!micButtonEnabled)
+  {
+    setMicDisabled();
+  }
+  if(!keyerButtonEnabled)
+  {
+    setKeyerDisabled();
+  }
 }
 
 /**
@@ -248,40 +269,14 @@ Radio *getActiveMicRadio() {
     Connects the Mic to the active Radio by toggling the IO state for it.
 */
 void setActiveMicRadio() {
-  switch (inputState.activeMicRadio) {
-    case 0:
-      setBank1Node0On();
-      break;
-    case 1:
-      setBank1Node1On();
-      break;
-    case 2:
-      setBank1Node2On();
-      break;
-    case 3:
-      setBank1Node3On();
-      break;
-  }
+  setMicOn(inputState.activeMicRadio);
 }
 
 /**
     Connects the Keyer to the active Radio by toggling the IO state for it.
 */
 void setActiveKeyerRadio() {
-  switch (inputState.activeKeyerRadio) {
-    case 0:
-      setBank2Node0On();
-      break;
-    case 1:
-      setBank2Node1On();
-      break;
-    case 2:
-      setBank2Node2On();
-      break;
-    case 3:
-      setBank2Node3On();
-      break;
-  }
+  setKeyerOn(inputState.activeKeyerRadio);
 }
 
 /*
@@ -292,16 +287,21 @@ void initializeDisplay(){
   // Initiate the LCD:
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println(F("SSD1306 allocation failed"));
+
+#if DEBUG==1
+  Serial.println(F("SSD1306 allocation failed"));
+#endif
+  
     for (;;); // Don't proceed, loop forever
   }
-  Serial.println(F("SSD1306 allocation success"));
-
-    // Clear the buffer
+  
+    // Clear the display buffer and set up our fonts
   display.clearDisplay();
   display.setFont(&FreeMono9pt7b);
   display.setTextSize(1); //font 1-8
   display.setTextColor(WHITE);
+
+  //Measure up to configure where the first lines starts with custom font
   int16_t x1, y1;
   uint16_t w, h;
   display.getTextBounds(callsign, 0, 0, &x1, &y1, &w, &h);
@@ -354,90 +354,77 @@ void displayResetMessage() {
 }
 
 //IO State management
-//TODO Move this to other files to seperate it out operationally
 
 /**
-    Connects the Mic to Radio port 1
+    Connects the Mic to Radio port at the given index
+    @param index if the radio port to set active
 */
-void setBank1Node0On() {
-  digitalWrite(micBPin, LOW);
-  digitalWrite(micAPin, LOW);
-  setBank1State(true);
-}
-
-/**
-    Connects the Mic to Radio port 2
-*/
-void setBank1Node1On() {
-  digitalWrite(micBPin, LOW);
-  digitalWrite(micAPin, HIGH);
-  setBank1State(true);
-}
-
-/**
-    Connects the Mic to Radio port 3
-*/
-void setBank1Node2On() {
-  digitalWrite(micBPin, HIGH);
-  digitalWrite(micAPin, LOW);
-  setBank1State(true);
-}
-
-/**
-    Connects the Mic to Radio port 3
-*/
-void setBank1Node3On() {
-  digitalWrite(micBPin, HIGH);
-  digitalWrite(micAPin, HIGH);
-  setBank1State(true);
+void setMicOn(int index) {
+  micState = micStateRef >> index;
+  writeOutput(micState | keyerState);
 }
 
 /**
     Enable or disable the entire Mic from any radio port.
 */
-void setBank1State(bool state) {
-  digitalWrite(micEnablePin, state ? LOW : HIGH);
+void setMicDisabled() {
+  micState = 0;
+  writeOutput(micState | keyerState);
 }
 
 /**
-    Connects the Keyer to Radio port 1
+    Connects the Keyer to Radio port at the given index
 */
-void setBank2Node0On() {
-  digitalWrite(keyBPin, LOW);
-  digitalWrite(keyAPin, LOW);
-  setBank2State(true);
+void setKeyerOn(int index) {
+  keyerState = keyerStateRef >> index;
+  writeOutput(micState | keyerState);
 }
 
 /**
-    Connects the Keyer to Radio port 2
+    Enable or disable the entire Mic from any radio port.
 */
-void setBank2Node1On() {
-  digitalWrite(keyBPin, LOW);
-  digitalWrite(keyAPin, HIGH);
-  setBank2State(true);
+void setKeyerDisabled() {
+  keyerState = 0;
+  writeOutput(micState | keyerState);
 }
 
-/**
-    Connects the Keyer to Radio port 3
-*/
-void setBank2Node2On() {
-  digitalWrite(keyBPin, HIGH);
-  digitalWrite(keyAPin, LOW);
-  setBank2State(true);
-}
+void writeOutput(byte output) {
 
-/**
-    Connects the Keyer to Radio port 4
-*/
-void setBank2Node3On() {
-  digitalWrite(keyBPin, HIGH);
-  digitalWrite(keyAPin, HIGH);
-  setBank2State(true);
-}
+  digitalWrite(MAX_RESET, HIGH);  // Enable blocks for programming
 
-/**
-    Enable or disable the entire Keyer from any radio port.
-*/
-void setBank2State(bool state) {
-  digitalWrite(keyEnablePin, state ? LOW : HIGH);
+  /*
+  CS: Drive CS low to alert the device for programming. When CS is low, data at DIN is
+  clocked into the 8-bit shift register on SCLK’s rising edge. Drive CS
+  from low to high to latch the data to the registers and activate the
+  appropriate relays.
+  */
+  digitalWrite(MAX_CS, LOW);
+  delayMicroseconds (outputDelay);
+  
+  //Write the byte data out one bit at a time
+  for (int i = 0; i < 8; i++) {
+    
+    uint8_t bit = bitRead(output,i);
+    if (bit == 1) {
+      digitalWrite(MAX_SDA, HIGH);
+      
+    } else {
+      digitalWrite(MAX_SDA, LOW);
+      
+    }
+
+    // latch assignment
+    digitalWrite(MAX_SCLK, HIGH); //clock pulse is generated, data is accepted 
+    delayMicroseconds(outputDelay);   
+
+
+    digitalWrite(MAX_SCLK, LOW); //clock pulse is withdrawn 
+    delayMicroseconds(outputDelay);   
+         
+  }
+  digitalWrite(MAX_SDA, LOW);
+
+  // /Deactivate CS = latch data to outputs
+  digitalWrite(MAX_CS, HIGH);
+
 }
