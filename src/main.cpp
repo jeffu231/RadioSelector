@@ -44,8 +44,8 @@ Radio radios[4] = { {"IC-756",true,true}, {"TS-850",true,true}, {"TS-790",true,t
 //Define the callsign for the header here
 const char callsign[] = "KB9KLD";
 
-const char keyerLabel[] = "Key ";
-const char micLabel[] = "Mic ";
+const char keyerLabel[] = "Key";
+const char micLabel[] = "Mic";
 
 const int displayCells = 20;
 const int maxNameLength = displayCells / 2 - 4;
@@ -330,6 +330,7 @@ void updateDisplay() {
   //Update the Mic Radio name
   char radioLine[11];  //11 chars long with this font, but should calculate it.
   strcpy(radioLine, micLabel);
+  strcat(radioLine, " "); //Add a space after the label
   Radio *radio = getActiveMicRadio();
   strcat(radioLine, micButtonEnabled?radio->nm:"None");  
   display.println(radioLine);
@@ -337,6 +338,7 @@ void updateDisplay() {
   //now update the Keyer Radio
   radioLine[0] = 0;
   strcpy(radioLine, keyerLabel);
+  strcat(radioLine, " "); //Add a space after the label
   radio = getActiveKeyerRadio();
   strcat(radioLine, keyerButtonEnabled?radio->nm:"None");  
   display.println(radioLine);
