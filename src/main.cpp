@@ -34,8 +34,11 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define micButtonPin 6
 #define keyerButtonPin 7
 
-//Define the radios here.
-//  name, hasMic, hasKeyer 
+/* Define up to 4 radios here in order of the ports 1-4.
+   name up to 7 characters,
+   Mic enable true if the radio uses the microphone  
+   Keyer enable true if the radio uses the keyer
+ */ 
 Radio radios[4] = { {"IC-756",true,true}, {"TS-850",true,true}, {"TS-790",true,true}, {"K2",true,true} }; 
 
 //Define the callsign for the header here
@@ -214,10 +217,11 @@ void setButtonsEnable(){
     Saves the updated state to the EEProm
 */
 void moveToNextMicRadio() {
-  if (inputState.activeMicRadio >= 3) {
-    inputState.activeMicRadio = -1;
-  }
   inputState.activeMicRadio++;
+  if (inputState.activeMicRadio >= numRadios) {
+    inputState.activeMicRadio = 0;
+  }
+
   while(radios[inputState.activeMicRadio].hasMic == false){
     moveToNextMicRadio();
   }
@@ -230,10 +234,10 @@ void moveToNextMicRadio() {
     Saves the updated state to the EEProm
 */
 void moveToNextKeyerRadio() {
-  if (inputState.activeKeyerRadio >= 3) {
-    inputState.activeKeyerRadio = -1;
-  } 
   inputState.activeKeyerRadio++;
+  if (inputState.activeKeyerRadio >= numRadios) {
+    inputState.activeKeyerRadio = 0;
+  }   
   while(radios[inputState.activeKeyerRadio].hasKeyer == false){
     moveToNextKeyerRadio();
   }
